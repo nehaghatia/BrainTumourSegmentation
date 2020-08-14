@@ -1,25 +1,35 @@
+# This file contains U-net model code.
+# It will first load the data present in Training, validate and test folders and then pass it as input to the model
 import numpy as np
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import MaxPooling2D,Conv2D,Dense,BatchNormalization,concatenate,Input,Dropout,Maximum,Activation,Dense,Flatten,UpSampling2D,Conv2DTranspose
+from tensorflow.keras.layers import MaxPooling2D,Conv2D,Dense,BatchNormalization,add,concatenate,Input,Dropout,Maximum,Activation,Dense,Flatten,UpSampling2D,Conv2DTranspose
 from tensorflow.keras.optimizers import Adam
 import tensorflow.keras.callbacks as callbacks
-# import keras.initializers as initializers
-# from keras.callbacks import Callback
-# from keras import regularizers
-from tensorflow.keras import backend as K
 import numpy as np
-from tensorflow.keras.utils import to_categorical
-from sklearn.metrics import confusion_matrix
-from EvaluationMetrics import *
+from tensorflow.keras import backend as K
 
-X_train = np.load('./Training Data/X_train4.npy')
-Y_train = np.load('./Training Data/Y_train4.npy')
 
-X_val = np.load('./Validation Data/X_val4.npy')
-Y_val = np.load('./Validation Data/Y_val4.npy')
+X_train = np.load('./Training Data/X_train.npy')
+Y_train = np.load('./Training Data/Y_train.npy')
+
+X_val = np.load('./Validation Data/X_val.npy')
+Y_val = np.load('./Validation Data/Y_val.npy')
 Y_val1 = np.load('./Validation Data/Y_val1.npy')
 
+def dice(y_true, y_pred):
+    sum_prediction=K.sum(y_pred)
+    sum_ground_truth=K.sum(y_true)
+    sum_combined=K.sum(y_true * y_pred)
+    dice_numerator =2*sum_combined
+    dice_denominator =sum_ground_truth+sum_prediction
+    dice_score =(dice_numerator+K.epsilon() )/(dice_denominator+K.epsilon())
+    return dice_score
 
+def dice_coef_loss(y_true, y_pred):
+    return 1-dice(y_true, y_pred)
+
+# This model code is taken from this git hub repository
+# https://github.com/as791/Multimodal-Brain-Tumor-Segmentation
 input_ = Input(shape=(192,192,4),name='input')
 
 block1_conv1 = Conv2D(64,3,padding='same',activation='relu',name='block1_conv1')(input_)
@@ -69,7 +79,6 @@ merged_block4 = concatenate([block1_norm,up_pool4],name='merged_block4')
 decod_block4_conv1 = Conv2D(64,3,padding = 'same',activation='relu',name='decod_block4_conv1')(merged_block4)
 ############ Decoder End ######################################
 
-# decoder_dropout_2 = Dropout(0.2,name='decoder_dropout_2')(decod_block4_conv1)
 
 pre_output = Conv2D(64,1,padding = 'same',activation='relu',name='pre_output')(decod_block4_conv1)
 
@@ -78,48 +87,12 @@ output = Conv2D(4,1,padding='same',activation='softmax',name='output')(pre_outpu
 model = Model(inputs = input_, outputs = output)
 print(model.summary())
 
-
-
 model.compile(optimizer=Adam(lr=1e-5),loss=dice_coef_loss,metrics=[dice])
-# model.compile(optimizer=Adam(lr=1e-5),loss=dice_coef_whole_metric_loss,metrics=[dice_whole_metric])
-# model.load_weights('./Model Checkpoints/weights.hdf5')
-# checkpointer = callbacks.ModelCheckpoint(filepath = './Model Checkpoints/weights.hdf5',save_best_only=True)
-# training_log = callbacks.TensorBoard(log_dir='./Model_logs')
-
-# history = model.fit(X_train,Y_train,validation_data=(X_val,Y_val),batch_size=32,epochs=16,callbacks=[checkpointer],shuffle=True)
-history = model.fit(X_train,Y_train,validation_data=(X_val,Y_val),batch_size=16,epochs=16,shuffle=True)
 
 
-# Prediction
-# Y_pre = np.argmax(model.predict(X_test),axis=-1)
-# np.save('./Prediction Data/Y_pre_with_normalise.npy',Y_pre)
+early_stopping = [callbacks.EarlyStopping(patience=5, monitor='val_loss')]
+history = model.fit(X_train,Y_train,validation_data=(X_val,Y_val),batch_size=16,epochs=5,shuffle=True,callbacks=[early_stopping])
 
-Y_pre_val = np.argmax(model.predict(X_val),axis=-1)
-np.save('./Prediction Data/Y_pre_val_with_normalise.npy',Y_pre_val)
+model.save('Saved Models/modelUnet.h5',overwrite=True)
 
-# Y_pre_train = np.argmax(model.predict(X_train),axis=-1)
-# np.save('./Prediction Data/Y_pre_train_with_normalise.npy',Y_pre_train)
-
-Y_pre_val = Y_pre_val.astype(np.uint8)
-Y_val1 = Y_val1.astype(np.uint8)
-
-y_val_preRes = Y_pre_val.reshape(-1)
-y_valRes = Y_val1.reshape(-1)
-
-cal_confusionMatrix(y_valRes,y_val_preRes)
-
-# Encoding one hot
-Y_pre_val = to_categorical(Y_pre_val)
-Y_val1 = to_categorical(Y_val1)
-print("While calculating Whole Tumour X_val, Y_val1.shape, Y_pre.shape",X_val.shape,Y_val1.shape,Y_pre_val.shape)
-Dice_Whole = dice_whole_metric(Y_val1,Y_pre_val)
-Dice_Core = dice_core_metric(Y_val1,Y_pre_val)
-Dice_Enhanced = dice_en_metric(Y_val1,Y_pre_val)
-print("Dice_Whole value for Validate",Dice_Whole)
-print("Dice_Core value for Validate",Dice_Core)
-print("Dice_Enhanced value for Validate",Dice_Enhanced)
-
-
-
-# Try checking for Whole Tumour
-
+print("ModelSaved Successfully")
